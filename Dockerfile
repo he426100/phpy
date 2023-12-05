@@ -1,11 +1,10 @@
-FROM php:8.1.24-cli-bullseye
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        build-essential \
-        git \
-        wget && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends build-essential git wget software-properties-common && \
+    add-apt-repository ppa:ondrej/php && apt-get update && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends php-cli php-dev && \
+	rm -rf /var/lib/apt/lists/*
 
 RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
     chmod +x ~/miniconda.sh && \
@@ -16,17 +15,18 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -
 
 ENV PATH="/opt/conda/bin:$PATH"
 
+RUN conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia && \
+	conda install -c huggingface transformers
+
 RUN git clone https://github.com/swoole/phpy.git /app/phpy
 
 WORKDIR /app/phpy
 RUN sed -i 's@anaconda3@conda@' config.m4
 
-RUN docker-php-source extract && \
-    phpize && \
+RUN phpize && \
     ./configure && \
     make install && \
-    docker-php-ext-enable phpy && \
-    docker-php-source delete
+    echo "extension=phpy.so" > /etc/php/8.2/cli/conf.d/20_phpy.ini
 
 RUN php -m | grep -i phpy
 
