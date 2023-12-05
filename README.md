@@ -1,39 +1,76 @@
-phpy
-====
-`Python` 与 `PHP` 互调用库，可以在 `PHP` 中使用 `Python` 语言的函数和类库，或者在 `Python` 中使用 `PHP` 的包。
-但不是语言内嵌。编码依然使用各自的原生语法。
+- 环境
+Ubuntu 22.04.3 LTS
+NVIDIA-SMI 520.61.05    Driver Version: 520.61.05    CUDA Version: 11.8 
 
-> 本项目授权协议为 `Apache2`
-
-- 目前仅支持 Linux 平台（理论上可以支持所有操作系统，待实现）
-- 不支持 Python 多线程、`async-io` 特性
-
-![Alt](docs/wxg.png)
+- 效果
+![image](https://github.com/swoole/phpy/assets/9689137/bef8f25a-8003-46c6-95e2-a9deb1f655c5)
 
 
-PHP 调用 Python
-----
-编译安装 `phpy.so` 作为扩展加载，修改 `php.ini` 追加 `extension=phpy.so` 即可。
+- Dockefile
+```
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
 
-例子：
-```php
-$os = PyCore::import("os");
-$un = $os->uname();
-echo strval($un);
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential git wget software-properties-common && \
+    add-apt-repository ppa:ondrej/php && apt-get update && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends php-cli php-dev && \
+	rm -rf /var/lib/apt/lists/*
+
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
+    chmod +x ~/miniconda.sh && \
+    mkdir -p /opt/conda && \
+    ~/miniconda.sh -b -u -p /opt/conda && \
+    rm ~/miniconda.sh && \
+    /opt/conda/bin/conda init bash
+
+ENV PATH="/opt/conda/bin:$PATH"
+
+RUN conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia && \
+	conda install -c huggingface transformers
+
+RUN git clone https://github.com/swoole/phpy.git /app/phpy
+
+WORKDIR /app/phpy
+RUN sed -i 's@anaconda3@conda@' config.m4
+
+RUN phpize && \
+    ./configure && \
+    make install && \
+    echo "extension=phpy.so" > /etc/php/8.2/cli/conf.d/20_phpy.ini
+
+RUN php -m | grep -i phpy
+
+CMD [ "bash" ]
 ```
 
-Python 中调用 PHP
-----
-直接作为 `C++ Mudule` ，import 加载即可。
+- 使用
+```
+docker run --rm -it --gpus all --name phpy phpy bash
+cd examples
+php pipeline.php
+```
 
-```python
-import phpy
+- 安装docker和cuda
+```
+sudo apt-get update
+sudo apt-get install \
+ ca-certificates \
+ curl \
+ gnupg \
+ lsb-release -y
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo \
+"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+$(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io -y
 
-content = phpy.call('file_get_contents', 'test.txt')
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
+&& curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add - \
+&& curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+sudo apt-get update
+sudo apt-get install -y nvidia-docker2
 
-o = phpy.Object('redis')
-assert o.call('connect', '127.0.0.1', 6379)
-rdata = phpy.call('uniqid')
-assert o.call('set', 'key', rdata)
-assert o.call('get', 'key') == rdata
+wget https://developer.download.nvidia.com/compute/cuda/11.8.0/local_installers/cuda_11.8.0_520.61.05_linux.run 
+sudo sh ./cuda_11.8.0_520.61.05_linux.run
 ```
